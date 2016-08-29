@@ -15,6 +15,15 @@ const PROPERTIES_MATCH = /[^;]*;/g,
 	STRING_REPLACEMENT_END_SYMBOL = '!STR_END!';
 
 class SCSSParser {
+	constructor(filename) {
+		this.filename = filename;
+		console.log("filename ====> ", filename);
+		this.scss = fs.readFileSync(filename, 'UTF-8');
+		if(!this.scss) {
+			throw new Error('File not found.');
+		}
+	}
+
 	_type(value) {
 		if(!value) {
 			return;
@@ -208,20 +217,17 @@ class SCSSParser {
 		this._recursive(rule.replace(normalized, ''), tree, siblings, currentlevel);
 	}
 
-	parse(filename, scss) {
+	parse() {
 		let tree = {
-			name: filename,
+			name: this.filename,
 			scss: []
 		};
-		var normalized = scss.replace(/\t/g, ' ').replace(/\n/g, ' ').replace(/\s{2,}/g, ' ');
+		var normalized = this.scss.replace(/\t/g, ' ').replace(/\n/g, ' ').replace(/\s{2,}/g, ' ');
 		normalized = normalized.replace(/(#{)([^}]+)(})/g, `${STRING_REPLACEMENT_START_SYMBOL}$2${STRING_REPLACEMENT_END_SYMBOL}`).replace(/\/\*[^\*]+\*\//g, '');
 		console.log(normalized);
 		this._recursive(normalized, tree);
 		return tree;
 	}
 }
-let teste = fs.readFileSync('app/assets/sass/desktop/components/conversation.scss', 'UTF-8');
-console.log(teste);
-console.log('TREE', new SCSSParser().parse('app/assets/sass/desktop/components/conversation.scss', teste));
 
-//node scss-ast.js --file 'app/assets/sass/desktop/components/conversation.scss' --unused-vars
+module.exports = SCSSParser;

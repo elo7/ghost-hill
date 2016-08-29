@@ -20,5 +20,8 @@
   "bugs": {
     "url": "https://github.com/elo7/ghost-hill/issues"
   },
-  "homepage": "https://github.com/elo7/ghost-hill#readme"
+  "homepage": "https://github.com/elo7/ghost-hill#readme",
+  "dependencies": {
+    "yargs": "5.0.0"
+  }
 }
