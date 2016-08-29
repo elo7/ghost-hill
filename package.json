@@ -1,0 +1,24 @@
+{
+  "name": "ghost-hill",
+  "version": "1.0.0",
+  "description": "",
+  "main": "scss-ast.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elo7/ghost-hill.git"
+  },
+  "keywords": [
+    "scss",
+    "ast",
+    "linter"
+  ],
+  "author": "Martell",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/elo7/ghost-hill/issues"
+  },
+  "homepage": "https://github.com/elo7/ghost-hill#readme"
+}
