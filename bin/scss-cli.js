@@ -1,4 +1,6 @@
-const SassParser = require('../scss-ast.js'),
+const ScssParser = require('../scss-ast.js'),
+	ScssValidator = require('../scss-validator.js'),
 	args = require('yargs').argv;
 
-console.log(JSON.stringify(new SassParser(args.file).parse()));
+const tree = new ScssParser(args.file).parse();
+new ScssValidator(tree).checkUnusedVars();

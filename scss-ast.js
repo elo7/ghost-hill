@@ -5,7 +5,7 @@ var fs = require('fs');
 const PROPERTIES_MATCH = /[^;]*;\s\/\/position:\(\d+,\d+\)/g,
 	SELECTOR_MATCH = /([\.\#\w\-\:\=\[\]\'\"]+)\s?{(\n|[^}]*)}/,
 	SELECTOR_ONLY_MATCH = /([\.\#\w\-\:\=\[\]\'\"]+|@function\s?([^(]+)\(.*\)|@mixin\s([^(]+)\(([^)]+)?\))?\s{/g,
-	VARIABLES_MATCH = /\$([^$,;]+)/g,
+	VARIABLES_MATCH = /\$([^$,]+);\s\/\/position:\(\d+,\d+\)/g,
 	MIXINS_MATCH = /@mixin\s([^(]+)\(([^)]+)?\)\s?{([^}]+)}/,
 	FUNCTIONS_MATCH = /@function\s?([^(]+)\((.*)\)\s?{([^}]+)}/,
 	INCLUDE_MATCH = /@include\s?([^(]+)(.*)\s?{([^}]+)}/,
@@ -15,7 +15,7 @@ const PROPERTIES_MATCH = /[^;]*;\s\/\/position:\(\d+,\d+\)/g,
 	STRING_REPLACEMENT_END_SYMBOL = '!STR_END!',
 	POSITION_REGEX = /\s\/\/position:\((\d+),(\d+)\)/;
 
-class SCSSParser {
+class ScssParser {
 	constructor(filename) {
 		this.filename = filename;
 		this.scss = fs.readFileSync(filename, 'UTF-8');
@@ -31,27 +31,34 @@ class SCSSParser {
 		value = value.replace(new RegExp(STRING_REPLACEMENT_START_SYMBOL, 'g'), '#{').replace(new RegExp(STRING_REPLACEMENT_END_SYMBOL, 'g'), '}');
 		const isHexa = value.indexOf('#') > 0,
 			isRgb = value.indexOf('rgb') > 0;
-		let formattedValue = {};
+		let formattedValue = [];
 
 		if(value.indexOf(':') > -1) {
 			var aux = value.split(':');
-			formattedValue.name = aux[0];
-			value = aux[1];
+			formattedValue.push({
+				name: aux[0],
+				value: aux[1]
+			});
 		}
 
 		if(value.indexOf('calc') > -1) {
-			formattedValue.type = 'calc';
-			formattedValue.value = value.replace(/calc\s?\(/, '').replace(')', '');
+			formattedValue.push({
+				type: 'calc',
+				value: value.replace(/calc\s?\(/, '').replace(')', '')
+			});
 		} else if(isHexa || isRgb) {
-			formattedValue.type = 'COLOR';
-			formattedValue.unit = isHexa? 'HEXADECIMAL' : 'RGB';
-			formattedValue.value = value;
+			formattedValue.push({
+				type: 'COLOR',
+				unit: isHexa? 'HEXADECIMAL' : 'RGB',
+				value: value
+			});
 		} else if(value.indexOf('url') > 0) {
-			formattedValue.type ='URL';
-			formattedValue.value = value.replace(/url\(['"]?([\w\.:\/_\-\+?%&]+)['"]?\)/g);
+			formattedValue.push({
+				type: 'URL',
+				value: value.replace(/url\(['"]?([\w\.:\/_\-\+?%&]+)['"]?\)/g)
+			});
 		} else if (CSS_UNIT.test(value) && !value.replace(UNITS, '').trim()) {
 			var matches = value.trim().split(' ');
-			formattedValue = [];
 			for(let i = 0; i < matches.length; i++) {
 				let match = matches[i].match(CSS_UNIT);
 				formattedValue.push({
@@ -61,8 +68,10 @@ class SCSSParser {
 				});
 			}
 		} else {
-			formattedValue.type = 'string';
-			formattedValue.value = value;
+			formattedValue.push({
+				type: 'string',
+				value: value
+			});
 		}
 
 		return formattedValue;
@@ -161,17 +170,20 @@ class SCSSParser {
 	_parseVariables(rule) {
 		const match = rule.match(VARIABLES_MATCH),
 			variables = [];
-
 		for (let i = 0, tot = match.length; i < tot; i++) {
-			console.log('VARIABLE: ', rule);
-			let parsedValue = match[i].split(':')[1];
+			let variable = match[i];
+			let position = this._position(variable);
+			variable = this._removePosition(variable);
+			let parsedValue = variable.split(':')[1];
 			if(parsedValue) {
 				parsedValue = this._type(parsedValue.trim().replace(/('|")/g, ''));
 			}
 			variables.push({
 				'type': 'VARIABLE',
-				'name': match[i].split(':')[0].replace('$', ''),
-				'value': parsedValue
+				'name': variable.split(':')[0].replace('$', ''),
+				'value': parsedValue,
+				'line': position.line,
+				'col': position.col
 			});
 		};
 		return variables
@@ -265,4 +277,4 @@ class SCSSParser {
 	}
 }
 
-module.exports = SCSSParser;
+module.exports = ScssParser;
