@@ -2,7 +2,7 @@
 
 var fs = require('fs');
 
-const PROPERTIES_MATCH = /[^;]*;/g,
+const PROPERTIES_MATCH = /[^;]*;\s\/\/position:\(\d+,\d+\)/g,
 	SELECTOR_MATCH = /([\.\#\w\-\:\=\[\]\'\"]+)\s?{(\n|[^}]*)}/,
 	SELECTOR_ONLY_MATCH = /([\.\#\w\-\:\=\[\]\'\"]+|@function\s?([^(]+)\(.*\)|@mixin\s([^(]+)\(([^)]+)?\))?\s{/g,
 	VARIABLES_MATCH = /\$([^$,;]+)/g,
@@ -12,12 +12,12 @@ const PROPERTIES_MATCH = /[^;]*;/g,
 	CSS_UNIT = /([\d\.]+)(px|em|rem|vw|vh|%|pt|cm|in|mm)?/,
 	UNITS = /(\d|\.|px|em|rem|vw|vh|%|pt|cm|in|mm)/g,
 	STRING_REPLACEMENT_START_SYMBOL = '!STR_START!',
-	STRING_REPLACEMENT_END_SYMBOL = '!STR_END!';
+	STRING_REPLACEMENT_END_SYMBOL = '!STR_END!',
+	POSITION_REGEX = /\s\/\/position:\((\d+),(\d+)\)/;
 
 class SCSSParser {
 	constructor(filename) {
 		this.filename = filename;
-		console.log("filename ====> ", filename);
 		this.scss = fs.readFileSync(filename, 'UTF-8');
 		if(!this.scss) {
 			throw new Error('File not found.');
@@ -94,21 +94,26 @@ class SCSSParser {
 
 		for(var i = 0; i < matches.length; i++) {
 			let propertie = this._removeLineBreakAndTabs(matches[i]);
-
+			let position = this._position(propertie),
+				formattedPropertie;
+			propertie = this._removePosition(propertie);
 			if(propertie.indexOf('@mixin') == 0) {
-				properties.push(this._parseMixins.call(this, propertie));
+				formattedPropertie = this._parseMixins.call(this, propertie);
 			} else if(propertie.indexOf('@include') == 0) {
-				properties.push(this._parseInclude.call(this, propertie));
+				formattedPropertie = this._parseInclude.call(this, propertie);
 			} else if(propertie.indexOf('@extend') == 0) {
-				properties.push(this._parseExtend.call(this, propertie));
+				formattedPropertie = this._parseExtend.call(this, propertie);
 			} else {
 				var name = propertie.split(":")[0].trim(),
 				value = propertie.split(":")[1].replace(';', '');
-				properties.push({
+				formattedPropertie = {
 					'name' : name,
 					'value' : this._type.call(this, value)
-				});
+				};
 			}
+			formattedPropertie.line = position.line;
+			formattedPropertie.col = position.col;
+			properties.push(formattedPropertie);
 		}
 		return properties;
 	}
@@ -158,6 +163,7 @@ class SCSSParser {
 			variables = [];
 
 		for (let i = 0, tot = match.length; i < tot; i++) {
+			console.log('VARIABLE: ', rule);
 			let parsedValue = match[i].split(':')[1];
 			if(parsedValue) {
 				parsedValue = this._type(parsedValue.trim().replace(/('|")/g, ''));
@@ -182,13 +188,19 @@ class SCSSParser {
 	}
 
 	_parse(rule) {
+		let formattedRule,
+			position = this._position(rule);
+		rule = this._removePosition(rule);
 		if(SELECTOR_MATCH.exec(this._removeLineBreakAndTabs(rule))) {
-			return this._parseSelectors(rule);
+			formattedRule = this._parseSelectors(rule);
 		} else if(FUNCTIONS_MATCH.exec(rule)) {
-			return this._parseFunctions(rule);
+			formattedRule = this._parseFunctions(rule);
 		} else if(MIXINS_MATCH.exec(rule)) {
-			return this._parseMixins(rule);
+			formattedRule = this._parseMixins(rule);
 		}
+		formattedRule.line = position.line;
+		formattedRule.col = position.col;
+		return formattedRule;
 	}
 
 	_recursive(rule, tree, siblings, level) {
@@ -217,14 +229,37 @@ class SCSSParser {
 		this._recursive(rule.replace(normalized, ''), tree, siblings, currentlevel);
 	}
 
+	_addPosition(index, line) {
+		let regex = /[^\s]/.exec(line);
+		return ` //position:(${index + 1},${regex? regex.index : 0})\n`
+	}
+
+	_position(line) {
+		let positions = POSITION_REGEX.exec(line);
+		return { line: positions[1], col: positions[2]};
+	}
+
+	_removePosition(rule) {
+		return rule.replace(POSITION_REGEX, '');
+	}
+
 	parse() {
 		let tree = {
 			name: this.filename,
 			scss: []
-		};
+		}, lines = this.scss.split('\n');
+
+		this.scss = lines.reduce((current, line, index) => {
+			if(line.trim()) {
+				if(index == 0) {
+					current += this._addPosition(index, current);
+				}
+				line += this._addPosition(index, line);
+			}
+			return current + line;
+		});
 		var normalized = this.scss.replace(/\t/g, ' ').replace(/\n/g, ' ').replace(/\s{2,}/g, ' ');
 		normalized = normalized.replace(/(#{)([^}]+)(})/g, `${STRING_REPLACEMENT_START_SYMBOL}$2${STRING_REPLACEMENT_END_SYMBOL}`).replace(/\/\*[^\*]+\*\//g, '');
-		console.log(normalized);
 		this._recursive(normalized, tree);
 		return tree;
 	}
