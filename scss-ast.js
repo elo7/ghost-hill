@@ -100,7 +100,6 @@ class ScssParser {
 	_extractProperties(rule) {
 		var properties = [];
 		const matches = rule.match(PROPERTIES_MATCH);
-
 		for(var i = 0; i < matches.length; i++) {
 			let propertie = this._removeLineBreakAndTabs(matches[i]);
 			let position = this._position(propertie),
@@ -170,6 +169,10 @@ class ScssParser {
 	_parseVariables(rule) {
 		const match = rule.match(VARIABLES_MATCH),
 			variables = [];
+		if(!match) {
+			return variables;
+		}
+
 		for (let i = 0, tot = match.length; i < tot; i++) {
 			let variable = match[i];
 			let position = this._position(variable);
