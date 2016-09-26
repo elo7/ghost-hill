@@ -2,18 +2,22 @@
 
 var fs = require('fs');
 
-const PROPERTIES_MATCH = /[^;]*;\s\/\/position:\(\d+,\d+\)/g,
-	SELECTOR_MATCH = /([\.\#\w\-\:\=\[\]\'\"]+)\s?{(\n|[^}]*)}/,
-	SELECTOR_ONLY_MATCH = /([\.\#\w\-\:\=\[\]\'\"]+|@function\s?([^(]+)\(.*\)|@mixin\s([^(]+)\(([^)]+)?\))?\s{/g,
+const PROPERTIES_MATCH = /(^[\w][^;]+|^(@include|@extend)[^;]+);\s\/\/position:\(\d+,\d+\)/g,
+	SELECTOR_MATCH = /([\.\#\w\-\:\=\[\]\'\",\s&]+)\s?{(\n|[^}]*)}/,
+	SELECTOR_ONLY_MATCH = /(^[\.\#\w\-\:\=\[\]\'\",\s&]+|@function\s?([^(]+)\(.*\)|@mixin\s([^(]+)(\([^)]+\))?)+\s{/g,
 	VARIABLES_MATCH = /\$([^$,]+);\s\/\/position:\(\d+,\d+\)/g,
-	MIXINS_MATCH = /@mixin\s([^(]+)\(([^)]+)?\)\s?{([^}]+)}/,
+	MIXINS_MATCH = /@mixin\s([^(]+)(\([^)]+\))?{([^}]+)}/,
 	FUNCTIONS_MATCH = /@function\s?([^(]+)\((.*)\)\s?{([^}]+)}/,
 	INCLUDE_MATCH = /@include\s?([^(]+)(.*)\s?{([^}]+)}/,
+	ANIMATION_MATCH = /keyframes\s([^{]+){/,
 	CSS_UNIT = /([\d\.]+)(px|em|rem|vw|vh|%|pt|cm|in|mm)?/,
 	UNITS = /(\d|\.|px|em|rem|vw|vh|%|pt|cm|in|mm)/g,
 	STRING_REPLACEMENT_START_SYMBOL = '!STR_START!',
 	STRING_REPLACEMENT_END_SYMBOL = '!STR_END!',
-	POSITION_REGEX = /\s\/\/position:\((\d+),(\d+)\)/;
+	POSITION_REGEX = /\s\/\/position:\((\d+),(\d+)\)/,
+	POSITION_REGEX_GLOBAL = /\s\/\/position:\((\d+),(\d+)\)/g;
+
+const includePath = '../water-gardens/app/assets/sass/'
 
 class ScssParser {
 	constructor(filename) {
@@ -22,6 +26,41 @@ class ScssParser {
 		if(!this.scss) {
 			throw new Error('File not found.');
 		}
+	}
+
+	_filename(filename) {
+		if(filename.indexOf('/') > 0) {
+			return filename.replace(/(.*)\/([\w\-]+)$/, '$1/_$2.scss');
+		} else {
+			return `_${filename}.scss`;
+		}
+	}
+
+	_filepath(filename) {
+		let filepath = this._filename(filename),
+			parentPath = this.filename.replace(/(.*)\/([^\/;\.]+(.scss)?)$/, '$1/');
+		if(fs.existsSync(includePath + filepath)) {
+			return includePath + filepath;
+		} else if(fs.existsSync(parentPath + filepath.replace())) {
+			return parentPath + filepath;
+		} else if(fs.existsSync(includePath + filepath.replace('_', ''))) {
+			return includePath + filepath.replace('_', '');
+		} else {
+			return parentPath + filepath.replace('_', '');
+		}
+	}
+
+	_import() {
+		const IMPORT_REGEX = /@import ['|"](.*)['"];/g;
+		let imports = [],
+			matches;
+		while (matches = IMPORT_REGEX.exec(this.scss)) {
+			let filepath = this._filepath(matches[1]);
+			let importFile = new ScssParser(filepath);
+			importFile.importName = matches[1].replace(/(.*)\/([^\/;\.]+)$/, '$1/_$2');
+			imports.push(importFile.parse());
+		}
+		return imports;
 	}
 
 	_type(value) {
@@ -99,7 +138,17 @@ class ScssParser {
 
 	_extractProperties(rule) {
 		var properties = [];
-		const matches = rule.match(PROPERTIES_MATCH);
+		const matches = rule.trim().match(PROPERTIES_MATCH);
+		if(!matches) {
+			if(rule.replace(POSITION_REGEX_GLOBAL, '').trim() == '') {
+				return properties;
+			} else {
+				console.log('>>>>FIXME: ', rule);
+				return [{
+					'FIXME': rule
+				}]
+			}
+		}
 		for(var i = 0; i < matches.length; i++) {
 			let propertie = this._removeLineBreakAndTabs(matches[i]);
 			let position = this._position(propertie),
@@ -147,12 +196,14 @@ class ScssParser {
 	}
 
 	_parseMixins(rule) {
+		console.log('MIXINS', rule);
 		var match = MIXINS_MATCH.exec(rule);
+		console.log('MIXINS Match', match);
 		return {
 			'type': 'MIXIN',
 			'name': match[1],
-			'parameters': this._parseVariables.call(this, match[2]),
-			'value': match[3]
+			'parameters': match[2]? this._parseVariables.call(this, match[2]) : [],
+			'value': match[3].replace(POSITION_REGEX_GLOBAL, '').replace(new RegExp(STRING_REPLACEMENT_START_SYMBOL, 'g'), '#{').replace(new RegExp(STRING_REPLACEMENT_END_SYMBOL, 'g'), '}')
 		}
 	}
 
@@ -162,7 +213,20 @@ class ScssParser {
 			'type': 'FUNCTION',
 			'name': match[1],
 			'parameters': this._parseVariables.call(this, match[2]),
-			'value': match[3]
+			'value': match[3].replace(POSITION_REGEX_GLOBAL, '').replace(new RegExp(STRING_REPLACEMENT_START_SYMBOL, 'g'), '#{').replace(new RegExp(STRING_REPLACEMENT_END_SYMBOL, 'g'), '}')
+		}
+	}
+
+	_parseAnimations(rule) {
+		let match = ANIMATION_MATCH.exec(rule);
+		console.log(match);
+		return {
+			'type': 'ANIMATION',
+			'name': match[1],
+			'value': {
+				'type': 'LOGIC',
+				'value': rule
+			}
 		}
 	}
 
@@ -206,13 +270,23 @@ class ScssParser {
 		let formattedRule,
 			position = this._position(rule);
 		rule = this._removePosition(rule);
-		if(SELECTOR_MATCH.exec(this._removeLineBreakAndTabs(rule))) {
-			formattedRule = this._parseSelectors(rule);
+		console.log('Rule', rule);
+		console.log('Functions', FUNCTIONS_MATCH.exec(rule));
+		if(ANIMATION_MATCH.exec(rule)) {
+			formattedRule = this._parseAnimations(rule);
 		} else if(FUNCTIONS_MATCH.exec(rule)) {
 			formattedRule = this._parseFunctions(rule);
 		} else if(MIXINS_MATCH.exec(rule)) {
 			formattedRule = this._parseMixins(rule);
+		} else if(SELECTOR_MATCH.exec(this._removeLineBreakAndTabs(rule))) {
+			formattedRule = this._parseSelectors(rule);
+		} else {
+			formattedRule = {
+				'type': 'LOGIC',
+				'value': rule.replace(POSITION_REGEX, '')
+			}
 		}
+
 		formattedRule.line = position.line;
 		formattedRule.col = position.col;
 		return formattedRule;
@@ -227,15 +301,17 @@ class ScssParser {
 		let selectors = normalized.match(SELECTOR_ONLY_MATCH);
 		let selector = selectors[selectors.length - 1];
 		let currentlevel = normalized.match(/{/g).length;
+		console.log(selector);
 		normalized = selector + normalized.substring(normalized.lastIndexOf('{') + 1);
 		let parsedSelector = this._parse(normalized);
-
-		if(!level || level === currentlevel) {
-			siblings = siblings || [];
-			siblings.push(parsedSelector);
-		} else {
-			parsedSelector.children = siblings;
-			siblings = [parsedSelector];
+		if(parsedSelector.type == 'SELECTOR') {
+			if(!level || level === currentlevel) {
+				siblings = siblings || [];
+				siblings.push(parsedSelector);
+			} else {
+				parsedSelector.children = siblings;
+				siblings = [parsedSelector];
+			}
 		}
 
 		if(currentlevel === 1) {
@@ -261,12 +337,13 @@ class ScssParser {
 	parse() {
 		let tree = {
 			name: this.filename,
-			scss: []
+			scss: [],
+			imports: this._import()
 		}, lines = this.scss.split('\n');
 
 		this.scss = lines.reduce((current, line, index) => {
 			if(line.trim()) {
-				if(index == 0) {
+				if(index == 1) {
 					current += this._addPosition(index, current);
 				}
 				line += this._addPosition(index, line);
