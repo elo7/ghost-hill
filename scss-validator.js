@@ -32,8 +32,11 @@ class ScssValidator {
 			}, []);
 
 		for(let i =0; i < values.length; i++) {
-			if(values[i].indexOf(variable.name) > -1) {
-				return true;
+			let vals = values[i].split(' ');
+			for(let j = 0; j < vals.length; j++) {
+				if(vals[j] === '$' + variable.name) {
+					return true;
+				}
 			}
 		}
 		return false;
